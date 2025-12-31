@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>CHAOS MOBILE</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3/dist/phaser.js"></script>
+
+<style>
+body {
+  margin: 0;
+  overflow: hidden;
+  background: black;
+  touch-action: none;
+}
+
+/* Mobile buttons */
+button {
+  position: fixed;
+  bottom: 20px;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  font-size: 24px;
+  border: none;
+  opacity: 0.8;
+}
+
+#shoot { right: 20px; background: orange; }
+#chaos { left: 20px; background: red; }
+</style>
+</head>
+
+<body>
+
+<button id="shoot">🔥</button>
+<button id="chaos">😈</button>
+
+<script>
+let sceneRef;
+
+const config = {
+  type: Phaser.AUTO,
+  width: window.innerWidth,
+  height: window.innerHeight,
+  backgroundColor: "#000",
+  scene: { create, update }
+};
+
+new Phaser.Game(config);
+
+let player, ghost, boss = null;
+let enemies = [], bullets = [];
+let chaos = false, chaosTimer = 0;
+let score = Number(localStorage.score || 0);
+
+// Touch movement
+let moveX = 0;
+let moveY = 0;
+
+function create() {
+  sceneRef = this;
+
+  player = this.add.rectangle(
+    this.scale.width / 2,
+    this.scale.height / 2,
+    40, 40, 0x00ff00
+  );
+  player.speed = 6;
+
+  ghost = this.add.rectangle(200, 200, 40, 40, 0x0066ff);
+
+  this.scoreText = this.add.text(10, 10, "Score: " + score, { fill: "#fff" });
+
+  this.cursors = this.input.keyboard.createCursorKeys();
+
+  for (let i = 0; i < 5; i++) spawnEnemy();
+
+  // Touch movement (drag anywhere)
+  this.input.on("pointermove", p => {
+    moveX = Phaser.Math.Clamp((p.x - player.x) / 50, -1, 1);
+    moveY = Phaser.Math.Clamp((p.y - player.y) / 50, -1, 1);
+  });
+
+  this.input.on("pointerup", () => {
+    moveX = 0;
+    moveY = 0;
+  });
+
+  document.getElementById("shoot").ontouchstart =
+  document.getElementById("shoot").onclick =
+    () => shoot(player, 0xffff00);
+
+  document.getElementById("chaos").ontouchstart =
+  document.getElementById("chaos").onclick =
+    () => activateChaos();
+}
+
+function update() {
+  let speed = chaos ? 12 : player.speed;
+
+  // Keyboard movement
+  if (this.cursors.left.isDown) player.x -= speed;
+  if (this.cursors.right.isDown) player.x += speed;
+  if (this.cursors.up.isDown) player.y -= speed;
+  if (this.cursors.down.isDown) player.y += speed;
+
+  // Touch movement
+  player.x += moveX * speed;
+  player.y += moveY * speed;
+
+  player.x = Phaser.Math.Clamp(player.x, 20, this.scale.width - 20);
+  player.y = Phaser.Math.Clamp(player.y, 20, this.scale.height - 20);
+
+  // Ghost AI
+  ghost.x += Math.sin(this.time.now * 0.002) * 2;
+  ghost.y += Math.cos(this.time.now * 0.002) * 2;
+
+  if (Math.random() < 0.01) shoot(ghost, 0x00aaff);
+
+  bullets.forEach((b, bi) => {
+    b.y -= 12;
+    if (b.y < 0) {
+      b.destroy();
+      bullets.splice(bi, 1);
+    }
+  });
+
+  enemies.forEach((e, ei) => {
+    let a = Phaser.Math.Angle.Between(e.x, e.y, player.x, player.y);
+    e.x += Math.cos(a) * e.speed;
+    e.y += Math.sin(a) * e.speed;
+
+    bullets.forEach((b, bi) => {
+      if (hit(b, e)) {
+        e.destroy();
+        b.destroy();
+        enemies.splice(ei, 1);
+        bullets.splice(bi, 1);
+        score++;
+        localStorage.score = score;
+        this.scoreText.setText("Score: " + score);
+        spawnEnemy();
+      }
+    });
+  });
+
+  if (!boss && score >= 10) spawnBoss();
+
+  if (boss) {
+    let a = Phaser.Math.Angle.Between(boss.x, boss.y, player.x, player.y);
+    boss.x += Math.cos(a) * boss.speed;
+    boss.y += Math.sin(a) * boss.speed;
+
+    bullets.forEach((b, bi) => {
+      if (hit(b, boss)) {
+        b.destroy();
+        bullets.splice(bi, 1);
+        boss.hp--;
+        if (boss.hp < 20) boss.fillColor = 0xff0000;
+        if (boss.hp <= 0) {
+          boss.destroy();
+          boss = null;
+          score += 10;
+        }
+      }
+    });
+  }
+
+  if (chaos) {
+    chaosTimer--;
+    this.cameras.main.shake(40, 0.02);
+    player.fillColor = Phaser.Display.Color.RandomRGB().color;
+    if (chaosTimer <= 0) {
+      chaos = false;
+      player.fillColor = 0x00ff00;
+    }
+  }
+}
+
+function shoot(source, color) {
+  let b = sceneRef.add.rectangle(source.x, source.y - 20, 8, 16, color);
+  bullets.push(b);
+}
+
+function spawnEnemy() {
+  let e = sceneRef.add.rectangle(
+    Phaser.Math.Between(50, sceneRef.scale.width - 50),
+    Phaser.Math.Between(50, sceneRef.scale.height - 50),
+    30, 30, 0xff0000
+  );
+  e.speed = Phaser.Math.Between(1, 3);
+  enemies.push(e);
+}
+
+function spawnBoss() {
+  boss = sceneRef.add.rectangle(
+    sceneRef.scale.width / 2, 100, 120, 120, 0xff00ff
+  );
+  boss.hp = 40;
+  boss.speed = 2;
+}
+
+function activateChaos() {
+  chaos = true;
+  chaosTimer = 180;
+}
+
+function hit(a, b) {
+  return Phaser.Geom.Intersects.RectangleToRectangle(
+    a.getBounds(), b.getBounds()
+  );
+}
+</script>
+
+</body>
+</html>
